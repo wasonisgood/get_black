@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提名考試委員 新聞關鍵字雲</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-cloud/1.2.5/d3.layout.cloud.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            width: 90%;
+            max-width: 800px;
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #333;
+        }
+        #word-cloud {
+            width: 100%;
+            height: 400px;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        #person-select, #threshold {
+            width: 100%;
+            margin: 10px 0;
+            padding: 5px;
+        }
+        .info {
+            font-size: 0.9em;
+            color: #666;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>提名考試委員 新聞關鍵字雲</h1>
+        <div class="controls">
+            <label for="person-select">選擇人物：</label>
+            <select id="person-select"></select>
+        </div>
+        <div class="controls">
+            <label for="threshold">最小出現次數：<span id="threshold-value">2</span></label>
+            <input type="range" id="threshold" min="1" max="20" value="2">
+        </div>
+        <div id="word-cloud"></div>
+        <p class="info">關鍵字大小代表在新聞中出現的頻率。點擊關鍵字可查看詳細資訊。</p>
+    </div>
+
+    <script>
+        let allData = {};
+        let currentPerson = '';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('output.json')
+                .then(response => response.json())
+                .then(data => {
+                    allData = data;
+                    initializePersonSelect();
+                    updateWordCloud();
+                })
+                .catch(error => console.error('Error fetching JSON:', error));
+        });
+
+        function initializePersonSelect() {
+            const select = document.getElementById('person-select');
+            Object.keys(allData).forEach(person => {
+                const option = document.createElement('option');
+                option.value = person;
+                option.textContent = person;
+                select.appendChild(option);
+            });
+            currentPerson = Object.keys(allData)[0];
+            select.value = currentPerson;
+            select.addEventListener('change', function() {
+                currentPerson = this.value;
+                updateWordCloud();
+            });
+        }
+
+        function processData(data) {
+            const wordCount = {};
+            data.forEach(article => {
+                article.TopWords.forEach(word => {
+                    if (!wordCount[word]) {
+                        wordCount[word] = { count: 0, urls: [] };
+                    }
+                    wordCount[word].count += 1;
+                    wordCount[word].urls.push(article.URL);
+                });
+            });
+            return Object.entries(wordCount).map(([text, info]) => ({ text, size: info.count, urls: info.urls }));
+        }
+
+        function updateWordCloud() {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            document.getElementById('threshold-value').textContent = threshold;
+
+            const personData = allData[currentPerson];
+            const words = processData(personData);
+            const filteredWords = words.filter(w => w.size >= threshold);
+
+            const layout = d3.layout.cloud()
+                .size([800, 400])
+                .words(filteredWords)
+                .padding(5)
+                .rotate(() => ~~(Math.random() * 2) * 90)
+                .font("Impact")
+                .fontSize(d => Math.sqrt(d.size) * 10)
+                .on("end", draw);
+
+            layout.start();
+        }
+
+        function draw(words) {
+            d3.select("#word-cloud").select("svg").remove();
+            d3.select("#word-cloud").append("svg")
+                .attr("width", 800)
+                .attr("height", 400)
+                .append("g")
+                .attr("transform", "translate(400,200)")
+                .selectAll("text")
+                .data(words)
+                .enter().append("text")
+                .style("font-size", d => `${d.size}px`)
+                .style("font-family", "Impact")
+                .style("fill", () => d3.schemeCategory10[~~(Math.random() * 10)])
+                .attr("text-anchor", "middle")
+                .attr("transform", d => `translate(${[d.x, d.y]})rotate(${d.rotate})`)
+                .text(d => d.text)
+                .on("click", function(event, d) {
+                    if (d.urls.length === 1) {
+                        window.open(d.urls[0], '_blank');
+                    } else {
+                        const newWindow = window.open("", "_blank");
+                        newWindow.document.write("<html><head><title>關鍵字相關連結</title></head><body><h1>關鍵字: " + d.text + "</h1><ul>");
+                        d.urls.forEach(url => {
+                            newWindow.document.write("<li><a href='" + url + "' target='_blank'>" + url + "</a></li>");
+                        });
+                        newWindow.document.write("</ul></body></html>");
+                        newWindow.document.close();
+                    }
+                });
+        }
+
+        document.getElementById('threshold').addEventListener('input', updateWordCloud);
+    </script>
+</body>
+</html>
